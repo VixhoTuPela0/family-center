@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: memoria
+      POSTGRES_USER: memoria
+      POSTGRES_PASSWORD: memoria
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memoria -d memoria"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://memoria:memoria@db:5432/memoria
+      MEDIA_ROOT: /mnt/aguirres-center
+      STORAGE_CAPACITY_BYTES: 2000000000000
+      SOURCES_ROOT: /home/vicho/videos-familia
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_TLS: ${SMTP_TLS:-true}
+      APP_URL: ${APP_URL:-https://centro.aguirres.ca}
+    volumes:
+      - media_data:/data/media
+      - /mnt/aguirres-center:/mnt/aguirres-center
+      - ./external-drives:/data/sources
+      - /home/vicho/videos-familia:/home/vicho/videos-familia
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    ports:
+      - "1234:5173"
+    depends_on:
+      - api
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TUNNEL_TOKEN:?Set CLOUDFLARED_TUNNEL_TOKEN in .env}
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  media_data:

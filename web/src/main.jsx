@@ -229,14 +229,14 @@ function CalendarPage({ events, videos, albums, people, categories, admin, save,
       if (!birthdayAllowedInYear(event, death, year)) return commemoration;
       const override = event.occurrenceOverrides?.[String(year)] || {};
       const eventDate = `${year}-${event.date.slice(5)}`;
-      const birthday = { ...event, ...override, eventType: year !== date.year ? "Cumpleaños" : (override.eventType || event.eventType), videoIds: override.videoIds || event.videoIds, albumIds: override.albumIds || event.albumIds, person: override.person || event.person, description: override.description || event.description, date: eventDate, birthYear: date.year, occurrenceYear: year, calendarKind: "custom" };
+      const birthday = { ...event, ...override, eventType: year !== date.year ? "Cumpleaños" : (override.eventType || event.eventType), title: year !== date.year && person ? `Cumpleaños de ${person}` : (override.title || event.title), videoIds: override.videoIds || event.videoIds, albumIds: override.albumIds || event.albumIds, person: override.person || event.person, description: override.description || event.description, date: eventDate, birthYear: date.year, occurrenceYear: year, calendarKind: "custom" };
       return [...commemoration, birthday];
     }
     if (event.eventType === "Nacimiento" && !birthdayAllowedInYear(event, death, year)) return [];
     const override = event.occurrenceOverrides?.[String(year)] || {};
     const eventDate = `${year}-${event.date.slice(5)}`;
     const eventType = event.eventType === "Nacimiento" && year !== date.year ? "Cumpleaños" : (override.eventType || event.eventType);
-    return [{ ...event, ...override, eventType, videoIds: override.videoIds || event.videoIds, albumIds: override.albumIds || event.albumIds, person: override.person || event.person, description: override.description || event.description, date: eventDate, birthYear: date.year, occurrenceYear: year, calendarKind: "custom" }];
+    return [{ ...event, ...override, eventType, title: eventType === "Cumpleaños" && person ? `Cumpleaños de ${person}` : (override.title || event.title), videoIds: override.videoIds || event.videoIds, albumIds: override.albumIds || event.albumIds, person: override.person || event.person, description: override.description || event.description, date: eventDate, birthYear: date.year, occurrenceYear: year, calendarKind: "custom" }];
   });
   const linkedItemsWithoutAssigned = linkedItems.filter(item => !customItems.some(event => event.date === item.date && (event.videoIds || []).includes(item.id) || event.date === item.date && (event.albumIds || []).includes(item.id)));
   const monthStart = new Date(year, month, 1);

@@ -196,7 +196,7 @@ function CalendarPage({ events, videos, albums, people, categories, admin, save,
   const [data, setData] = useState({ title: "", event_type: categories[0]?.name || "Otros", event_date: `${year}-${String(month + 1).padStart(2, "0")}-01`, description: "", person: "", recurrence: "none", video_ids: [], album_ids: [] });
   const first = new Date(year, month, 1).getDay();
   const days = new Date(year, month + 1, 0).getDate();
-  const linkedItems = [...videos.map(item => ({ ...item, calendarKind: "video", date: item.date, title: item.title })), ...albums.map(item => ({ ...item, calendarKind: "album", date: item.date, title: item.title }))];
+  const linkedItems = [...videos.map(item => ({ ...item, calendarKind: "video", date: item.date, title: item.title })), ...albums.map(item => ({ ...item, calendarKind: "album", date: item.startDate || item.date, title: item.title }))];
   const customItems = events.flatMap(event => {
     const date = localDate(event.date);
     const person = event.person.trim();
@@ -231,11 +231,24 @@ function CalendarPage({ events, videos, albums, people, categories, admin, save,
     return [{ ...event, ...override, eventType, videoIds: override.videoIds || event.videoIds, albumIds: override.albumIds || event.albumIds, person: override.person || event.person, description: override.description || event.description, date: eventDate, birthYear: date.year, occurrenceYear: year, calendarKind: "custom" }];
   });
   const linkedItemsWithoutAssigned = linkedItems.filter(item => !customItems.some(event => event.date === item.date && (event.videoIds || []).includes(item.id) || event.date === item.date && (event.albumIds || []).includes(item.id)));
-  const dayEvents = [...customItems, ...linkedItemsWithoutAssigned].filter(event => { const date = localDate(event.date); return date.month === month && date.year === year; }).filter(event => {
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  const dayEvents = [...customItems, ...linkedItemsWithoutAssigned].filter(event => {
+    const start = localDate(event.startDate || event.date);
+    const end = localDate(event.endDate || event.date);
+    return new Date(start.year, start.month, start.day) <= monthEnd && new Date(end.year, end.month, end.day) >= monthStart;
+  }).filter(event => {
     if (event.eventType !== "Cumpleaños") return true;
     return !customItems.some(other => other.eventType === "Conmemoracion" && other.date === event.date);
   });
-  const eventsForDay = day => dayEvents.filter(event => localDate(event.date).day === day);
+  const eventsForDay = day => {
+    const current = new Date(year, month, day);
+    return dayEvents.filter(event => {
+      const start = localDate(event.startDate || event.date);
+      const end = localDate(event.endDate || event.date);
+      return new Date(start.year, start.month, start.day) <= current && new Date(end.year, end.month, end.day) >= current;
+    });
+  };
   const changeMonth = direction => { const next = new Date(year, month + direction, 1); setMonth(next.getMonth()); setYear(next.getFullYear()); };
   const submit = async e => { e.preventDefault(); if ((data.event_type === "Nacimiento" || data.event_type === "Defuncion") && !data.person) return; const payload = { ...data, recurrence: data.event_type === "Nacimiento" ? "annual" : data.event_type === "Defuncion" ? "none" : data.recurrence }; if (editingEvent) await update(editingEvent.id, { ...payload, occurrence_year: editingEvent.occurrenceYear || null }); else await save(payload); setShowForm(false); setEditingEvent(null); setData(current => ({ ...current, title: "", description: "", person: "", video_ids: [], album_ids: [] })); };
   const editEvent = event => { setEditingEvent(event); setData({ title: event.title, event_type: event.eventType, event_date: event.date, description: event.description || "", person: event.person || "", recurrence: event.recurrence || "none", video_ids: event.videoIds || [], album_ids: event.albumIds || [] }); setShowForm(true); };

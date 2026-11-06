@@ -66,18 +66,6 @@ class Video(Base):
     content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)
 
 
-class FaceAnnotation(Base):
-    __tablename__ = "face_annotations"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    video_id: Mapped[str] = mapped_column(String(36), index=True)
-    name: Mapped[str] = mapped_column(String(120))
-    person_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, default=None)
-    x: Mapped[float] = mapped_column()
-    y: Mapped[float] = mapped_column()
-    width: Mapped[float] = mapped_column()
-    height: Mapped[float] = mapped_column()
-
-
 class Sticker(Base):
     __tablename__ = "stickers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -299,15 +287,6 @@ class AlbumCreate(BaseModel):
     @classmethod
     def empty_date_to_none(cls, value):
         return None if value == "" else value
-
-
-class FaceAnnotationPayload(BaseModel):
-    name: str
-    person_id: Optional[str] = None
-    x: float
-    y: float
-    width: float
-    height: float
 
 
 class CalendarEventCreate(BaseModel):
@@ -1075,61 +1054,6 @@ def grouped_video_dicts(videos: list[Video]) -> list[dict]:
             grouped[video.slide_group_id] = {**item, "slides": [item]}
             result.append(grouped[video.slide_group_id])
     return result
-
-
-def face_annotation_dict(annotation: FaceAnnotation) -> dict:
-    return {
-        "id": annotation.id,
-        "name": annotation.name,
-        "personId": annotation.person_id,
-        "x": annotation.x,
-        "y": annotation.y,
-        "width": annotation.width,
-        "height": annotation.height,
-    }
-
-
-@app.get("/api/videos/{video_id}/face-annotations")
-def list_face_annotations(video_id: str, _: User = Depends(admin_user)) -> list[dict]:
-    with Session(engine) as session:
-        video = session.get(Video, video_id)
-        if not video:
-            raise HTTPException(status_code=404, detail="Recuerdo no encontrado")
-        return [face_annotation_dict(item) for item in session.scalars(select(FaceAnnotation).where(FaceAnnotation.video_id == video_id))]
-
-
-@app.put("/api/videos/{video_id}/face-annotations")
-def save_face_annotations(video_id: str, payload: list[FaceAnnotationPayload], _: User = Depends(admin_user)) -> list[dict]:
-    with Session(engine) as session:
-        video = session.get(Video, video_id)
-        if not video:
-            raise HTTPException(status_code=404, detail="Recuerdo no encontrado")
-        if video.media_type != "image" and Path(video.filename).suffix.lower() not in IMAGE_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="Solo se pueden identificar personas en fotos")
-        people_ids = {item.id for item in session.scalars(select(Person).where(Person.id.in_([item.person_id for item in payload if item.person_id])))}
-        for item in payload:
-            if not item.name.strip():
-                raise HTTPException(status_code=400, detail="Cada recuadro debe tener un nombre")
-            if not all(0 <= value <= 1 for value in (item.x, item.y, item.width, item.height)) or item.x + item.width > 1 or item.y + item.height > 1:
-                raise HTTPException(status_code=400, detail="La posición de cada recuadro no es válida")
-            if item.person_id and item.person_id not in people_ids:
-                raise HTTPException(status_code=400, detail="La persona seleccionada no existe")
-        session.execute(delete(FaceAnnotation).where(FaceAnnotation.video_id == video_id))
-        annotations = [
-            FaceAnnotation(
-                video_id=video_id,
-                name=item.name.strip(),
-                person_id=item.person_id,
-                x=item.x,
-                y=item.y,
-                width=item.width,
-                height=item.height,
-            )
-            for item in payload
-        ]
-        session.add_all(annotations)
-        session.commit()
-        return [face_annotation_dict(item) for item in annotations]
 
 
 def sticker_dict(sticker: Sticker) -> dict:

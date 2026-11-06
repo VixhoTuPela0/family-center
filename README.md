@@ -11,8 +11,6 @@ Family Center es un archivo multimedia familiar privado para conservar recuerdos
 - Controlar la visibilidad de los recuerdos y compartirlos con usuarios autorizados.
 - Administrar personas, categorías, álbumes y usuarios.
 - Visualizar documentos, PDFs, imágenes, videos y audios desde la aplicación.
-- Identificar personas en fotografías con cuadros sobre sus rostros (función experimental exclusiva para administradores).
-- Editar los nombres asociados a las identificaciones sin agregar nombres externos a la lista global de personas.
 
 ## Tecnologías
 

@@ -43,6 +43,8 @@ const birthdayAge = (event, occurrenceYear) => {
   return age > 0 ? `Cumple ${age} años` : null;
 };
 const birthdayAllowedInYear = (birthEvent, deathEvent, year) => {
+  const birthYear = localDate(birthEvent.date).year;
+  if (year < birthYear) return false;
   if (!deathEvent) return true;
   const deathYear = localDate(deathEvent.date).year;
   if (year < deathYear) return true;

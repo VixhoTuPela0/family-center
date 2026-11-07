@@ -73,7 +73,17 @@ function App() {
   const [videos, setVideos] = useState([]); const [categories, setCategories] = useState([]); const [people, setPeople] = useState([]); const [users, setUsers] = useState([]); const [albums, setAlbums] = useState([]); const [calendarEvents, setCalendarEvents] = useState([]); const [invitations, setInvitations] = useState([]); const [editors, setEditors] = useState([]); const [stickers, setStickers] = useState([]); const [storage, setStorage] = useState(null);
   const [selected, setSelected] = useState(null); const [editing, setEditing] = useState(null); const [editingAlbum, setEditingAlbum] = useState(null); const [calendar, setCalendar] = useState(false); const [calendarAlbum, setCalendarAlbum] = useState(null); const [mobileMenuOpen, setMobileMenuOpen] = useState(false); const [toast, setToast] = useState("");
   const notify = message => { setToast(message); setTimeout(() => setToast(""), 3000); };
-  const load = async () => { const [v, c, p, u, a, e, i, ed, st, s] = await Promise.all([fetch(`${API}/videos`).then(r => r.ok ? r.json() : []), fetch(`${API}/categories`).then(r => r.ok ? r.json() : []), fetch(`${API}/people`).then(r => r.ok ? r.json() : []), fetch(`${API}/users`).then(r => r.ok ? r.json() : []), fetch(`${API}/albums`).then(r => r.ok ? r.json() : []), fetch(`${API}/calendar-events`).then(r => r.ok ? r.json() : []), fetch(`${API}/users/invitations`).then(r => r.ok ? r.json() : []), fetch(`${API}/editors`).then(r => r.ok ? r.json() : []), fetch(`${API}/stickers`).then(r => r.ok ? r.json() : []), fetch(`${API}/storage`).then(r => r.ok ? r.json() : null)]); setVideos(v); setCategories(c); setPeople(p); setUsers(u); setAlbums(a); setCalendarEvents(e); setInvitations(i); setEditors(ed); setStickers(st); setStorage(s); };
+  const load = async () => {
+    const fetchJson = (path, fallback) => fetch(`${API}/${path}`).then(response => response.ok ? response.json() : fallback);
+    const [v, e] = await Promise.all([fetchJson("videos", []), fetchJson("calendar-events", [])]);
+    setVideos(v);
+    setCalendarEvents(e);
+    const [c, p, u, a, i, ed, st, storageData] = await Promise.all([
+      fetchJson("categories", []), fetchJson("people", []), fetchJson("users", []), fetchJson("albums", []),
+      fetchJson("users/invitations", []), fetchJson("editors", []), fetchJson("stickers", []), fetchJson("storage", null),
+    ]);
+    setCategories(c); setPeople(p); setUsers(u); setAlbums(a); setInvitations(i); setEditors(ed); setStickers(st); setStorage(storageData);
+  };
   const formatStorage = bytes => { const tb = bytes / 1_000_000_000_000; return `${tb >= 1 ? tb.toFixed(2).replace(/\.?0+$/, "") : (bytes / 1_000_000_000).toFixed(1)} ${tb >= 1 ? "TB" : "GB"}`; };
   const storagePercent = storage ? Math.min(100, (storage.usedBytes / storage.totalBytes) * 100) : 0;
   useEffect(() => { fetch(`${API}/auth/me`).then(r => r.ok ? r.json() : null).then(setUser).finally(() => setLoading(false)); }, []);

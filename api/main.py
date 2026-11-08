@@ -1306,7 +1306,7 @@ def create_album(payload: AlbumCreate, _: User = Depends(content_manager)) -> di
             raise HTTPException(status_code=400, detail="El álbum necesita una fecha")
         if payload.is_long_duration:
             validate_date_range(start_date, end_date)
-        album = Album(title=payload.title.strip(), event_type="" if payload.is_regrouping else payload.event_type.strip() or "Otros", recorded_on=None if payload.is_regrouping else start_date, is_long_duration=payload.is_long_duration and not payload.is_regrouping, is_regrouping=payload.is_regrouping, start_date=start_date if payload.is_long_duration and not payload.is_regrouping else None, end_date=end_date if payload.is_long_duration and not payload.is_regrouping else None, people=", ".join(payload.people), description=payload.description)
+        album = Album(title=payload.title.strip(), event_type="" if payload.is_regrouping else payload.event_type.strip() or "Otros", recorded_on=None if payload.is_regrouping else start_date, is_long_duration=payload.is_long_duration and not payload.is_regrouping, is_regrouping=payload.is_regrouping, start_date=start_date if payload.is_long_duration and not payload.is_regrouping else None, end_date=end_date if payload.is_long_duration and not payload.is_regrouping else None, people="", description=payload.description)
         if not album.title:
             raise HTTPException(status_code=400, detail="El álbum necesita un nombre")
         session.add(album)
@@ -1337,7 +1337,7 @@ def update_album(album_id: str, payload: AlbumCreate, _: User = Depends(admin_us
         album.is_regrouping = payload.is_regrouping
         album.start_date = start_date if payload.is_long_duration and not payload.is_regrouping else None
         album.end_date = end_date if payload.is_long_duration and not payload.is_regrouping else None
-        album.people = ", ".join(payload.people)
+        album.people = ""
         album.description = payload.description
         session.commit()
         session.refresh(album)

@@ -24,6 +24,7 @@ const isTodayMemory = item => {
   const today = new Date();
   const start = item.startDate || item.date;
   const end = item.endDate || item.date;
+  if (!start || !end) return false;
   const startParts = localDate(start);
   const endParts = localDate(end);
   const current = today.getMonth() * 31 + today.getDate();

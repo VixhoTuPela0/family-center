@@ -196,7 +196,9 @@ function UsersPage() {
 
 function AdminPage({ user, users, invitations, categories, people, albums, reload, remove }) {
   const [invite, setInvite] = useState({ email: "", role: "visitor" });
+  const [roles, setRoles] = useState({});
   const [message, setMessage] = useState("");
+  useEffect(() => setRoles(Object.fromEntries(users.map(person => [person.id, person.role]))), [users]);
   const sendInvite = async event => {
     event.preventDefault();
     const response = await fetch(`${API}/users/invite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(invite) });
@@ -204,10 +206,12 @@ function AdminPage({ user, users, invitations, categories, people, albums, reloa
     setMessage(response.ok ? `Invitación enviada a ${result.email}` : result.detail || "No se pudo enviar la invitación");
     if (response.ok) { setInvite({ email: "", role: "visitor" }); reload(); }
   };
-  const updateRole = async (person, role) => {
-    const response = await fetch(`${API}/users/${person.id}/role`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) return setMessage(result.detail || "No se pudo modificar el rol");
+  const saveRoles = async () => {
+    const changes = users.filter(person => roles[person.id] && roles[person.id] !== person.role);
+    const results = await Promise.all(changes.map(person => fetch(`${API}/users/${person.id}/role`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roles[person.id] }) })));
+    const failed = results.find(response => !response.ok);
+    if (failed) return setMessage("No se pudieron guardar todos los roles");
+    setMessage("Roles guardados");
     reload();
   };
   const removeInvitation = async item => {
@@ -215,7 +219,7 @@ function AdminPage({ user, users, invitations, categories, people, albums, reloa
     const response = await fetch(`${API}/users/invitations/${item.id}`, { method: "DELETE" });
     if (response.ok) reload(); else setMessage("No se pudo eliminar la invitación");
   };
-  return <div className="content"><Title eyebrow="ADMINISTRACIÓN" title="Admin" sub="Gestiona usuarios, roles e invitaciones del archivo familiar." /><div className="settings-grid"><section className="form-card settings-card"><h2>Invitar usuario</h2><form onSubmit={sendInvite}><label>Correo<input type="email" value={invite.email} onChange={event => setInvite({ ...invite, email: event.target.value })} required /></label><label>Rol<select value={invite.role} onChange={event => setInvite({ ...invite, role: event.target.value })}><option value="visitor">Visitante</option><option value="editor">Editor</option><option value="admin">Administrador</option></select></label><button className="primary"><Users size={16} /> Enviar invitación</button></form></section><section className="form-card settings-card"><h2>Invitaciones pendientes</h2>{invitations.length ? invitations.map(item => <div className="user-row" key={item.id}><div><b>{item.email}</b><span>{new Date(item.createdAt).toLocaleDateString("es-ES")}</span></div><button className="danger-button" onClick={() => removeInvitation(item)}>Eliminar</button></div>) : <p className="empty-state">No hay invitaciones pendientes.</p>}</section></div><section className="form-card user-management"><h2>Usuarios registrados</h2>{users.map(person => <div className="user-row" key={person.id}><div><b>{person.name || "Sin nombre"}</b><span>{person.email || "Sin correo"}</span></div><select value={person.role} disabled={person.id === user.id} onChange={event => updateRole(person, event.target.value)}><option value="visitor">Visitante</option><option value="editor">Editor</option><option value="admin">Administrador</option></select>{person.id !== user.id && <button className="danger-button" onClick={() => remove(`/users/${person.id}`, `¿Eliminar a ${person.name || person.email}?`)}>Eliminar</button>}</div>)}</section>{message && <p className="success-message">{message}</p>}<PendingRequests categories={categories} people={people} albums={albums} /></div>;
+  return <div className="content"><Title eyebrow="ADMINISTRACIÓN" title="Admin" sub="Gestiona usuarios, roles e invitaciones del archivo familiar." /><div className="settings-grid"><section className="form-card settings-card"><h2>Invitar usuario</h2><form onSubmit={sendInvite}><label>Correo<input type="email" value={invite.email} onChange={event => setInvite({ ...invite, email: event.target.value })} required /></label><label>Rol<select value={invite.role} onChange={event => setInvite({ ...invite, role: event.target.value })}><option value="visitor">Visitante</option><option value="editor">Editor</option><option value="admin">Administrador</option></select></label><button className="primary"><Users size={16} /> Enviar invitación</button></form></section><section className="form-card settings-card"><h2>Invitaciones pendientes</h2>{invitations.length ? invitations.map(item => <div className="user-row" key={item.id}><div><b>{item.email}</b><span>{new Date(item.createdAt).toLocaleDateString("es-ES")}</span></div><button className="danger-button" onClick={() => removeInvitation(item)}>Eliminar</button></div>) : <p className="empty-state">No hay invitaciones pendientes.</p>}</section></div><section className="form-card user-management"><div className="admin-users-heading"><h2>Usuarios registrados</h2><button type="button" className="admin-save-button" onClick={saveRoles}>Guardar</button></div>{users.map(person => <div className="user-row" key={person.id}><div className="admin-user-identity"><b>{person.name || "Sin nombre"}</b><span>{person.email || "Sin correo"}</span></div><select className="admin-role-select" value={roles[person.id] || person.role} disabled={person.id === user.id} onChange={event => setRoles(current => ({ ...current, [person.id]: event.target.value }))}><option value="visitor">Visitante</option><option value="editor">Editor</option><option value="admin">Administrador</option></select>{person.id !== user.id && <button className="danger-button" onClick={() => remove(`/users/${person.id}`, `¿Eliminar a ${person.name || person.email}?`)}>Eliminar</button>}</div>)}</section>{message && <p className="success-message">{message}</p>}<PendingRequests categories={categories} people={people} albums={albums} /></div>;
 }
 
 function Editors({ editors, open }) {

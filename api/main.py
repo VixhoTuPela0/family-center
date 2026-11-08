@@ -385,10 +385,11 @@ def content_manager(user: User = Depends(current_user)) -> User:
 
 
 def user_dict(user: User) -> dict:
+    display_name = user.display_name.strip() or " ".join(part for part in (user.first_name, user.last_name) if part).strip() or user.username or user.email
     return {
         "id": user.id,
         "username": user.username,
-        "name": user.display_name,
+        "name": display_name,
         "firstName": user.first_name,
         "lastName": user.last_name,
         "email": user.email,
@@ -504,6 +505,15 @@ def send_access_decision_email(access_request: AccessRequest) -> None:
     message.set_content(
         f"Hola {access_request.requester_name},\n\nTu solicitud para agregar un recuerdo fue {decision}."
         + (f"\n\nRazón: {access_request.decision_reason}" if access_request.decision_reason else "")
+    )
+    message.add_alternative(
+        f"""<html><body style="font-family:Arial,sans-serif;color:#303a36">
+        <h2>Tu solicitud fue {decision}</h2>
+        <p>Hola {access_request.requester_name},</p>
+        <p>Tu solicitud para agregar un recuerdo fue <b>{decision}</b>.</p>
+        {f"<p><b>Razón:</b> {access_request.decision_reason}</p>" if access_request.decision_reason else ""}
+        </body></html>""",
+        subtype="html",
     )
     with smtplib.SMTP(host, port, timeout=15) as smtp:
         if os.getenv("SMTP_TLS", "true").lower() == "true":
@@ -1246,7 +1256,7 @@ def pdf_page(filename: str, page: int = 1, user: User = Depends(current_user)) -
 @app.get("/api/videos")
 def list_videos(search: Optional[str] = None, event_type: Optional[str] = None, media_type: Optional[str] = None, sort: str = "date_desc", _: User = Depends(current_user)) -> list[dict]:
     with Session(engine) as session:
-        creator_names = {user.id: user.display_name for user in session.scalars(select(User))}
+        creator_names = {user.id: (user.display_name.strip() or " ".join(part for part in (user.first_name, user.last_name) if part).strip() or user.username or user.email) for user in session.scalars(select(User))}
         user = session.get(User, _.id)
         album_titles = {
             album.title.strip().casefold()
@@ -1279,7 +1289,7 @@ def list_videos(search: Optional[str] = None, event_type: Optional[str] = None, 
 @app.get("/api/albums")
 def list_albums(user: User = Depends(current_user)) -> list[dict]:
     with Session(engine) as session:
-        creator_names = {item.id: item.display_name for item in session.scalars(select(User))}
+        creator_names = {item.id: (item.display_name.strip() or " ".join(part for part in (item.first_name, item.last_name) if part).strip() or item.username or item.email) for item in session.scalars(select(User))}
         visible = {video.id: video_dict(video) for video in session.scalars(select(Video).order_by(Video.created_at.asc())) if can_view(video, user)}
         album_group_ids = {
             album.id: {
@@ -1545,7 +1555,7 @@ def update_video(video_id: str, payload: VideoUpdate, user: User = Depends(edito
         session.commit()
         session.refresh(video)
         result = video_dict(video)
-        result["createdByName"] = next((item.display_name for item in session.scalars(select(User)) if item.id == video.created_by), "Persona desconocida")
+        result["createdByName"] = next((item.display_name.strip() or " ".join(part for part in (item.first_name, item.last_name) if part).strip() or item.username or item.email for item in session.scalars(select(User)) if item.id == video.created_by), "Persona desconocida")
         return result
 
 

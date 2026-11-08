@@ -333,7 +333,7 @@ function TimelineFull({ videos, albums, events, open, openAlbum }) {
   const [span, setSpan] = useState(Math.min(10, totalYears));
   const entries = [
     ...videos.map(item => ({ ...item, kind: "video", key: `video-${item.id}` })),
-    ...albums.map(item => ({ ...item, kind: "album", key: `album-${item.id}` })),
+    ...albums.filter(item => item.date).map(item => ({ ...item, kind: "album", key: `album-${item.id}` })),
     ...events.map(item => ({ ...item, kind: "event", key: `event-${item.id}` })),
   ];
   const endYear = Math.min(lastYear, startYear + span - 1);

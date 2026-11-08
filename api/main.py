@@ -1150,15 +1150,8 @@ def health() -> dict:
 @app.get("/api/storage")
 def storage(_: User = Depends(staff_user)) -> dict:
     try:
-        result = subprocess.run(
-            ["du", "-sb", "--", str(MEDIA_ROOT)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        used_bytes = int(result.stdout.split()[0])
-    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError) as error:
+        used_bytes = shutil.disk_usage(MEDIA_ROOT).used
+    except OSError as error:
         raise HTTPException(status_code=503, detail="No se pudo medir el almacenamiento") from error
     return {"usedBytes": used_bytes, "totalBytes": STORAGE_CAPACITY_BYTES}
 

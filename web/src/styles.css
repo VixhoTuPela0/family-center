@@ -322,3 +322,4 @@ button,input,select,textarea{max-width:100%}
   .editor-rules li{font-size:14px;line-height:1.6}
   .editor-rules .rules-checkbox{font-size:14px}
 }
+.settings-grid > div > form:nth-of-type(2),.settings-grid > div > .pending-invitations,.settings-grid > div > .user-management{display:none}

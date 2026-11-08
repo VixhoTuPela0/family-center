@@ -237,6 +237,10 @@ class InviteCreate(BaseModel):
     role: str = "visitor"
 
 
+class UserRoleUpdate(BaseModel):
+    role: str
+
+
 class RegisterPayload(BaseModel):
     token: str
     username: str
@@ -794,6 +798,22 @@ def delete_user(user_id: str, user: User = Depends(admin_user)) -> dict:
         session.delete(target)
         session.commit()
         return {"ok": True}
+
+
+@app.put("/api/users/{user_id}/role")
+def update_user_role(user_id: str, payload: UserRoleUpdate, user: User = Depends(admin_user)) -> dict:
+    if payload.role not in {"visitor", "editor", "admin"}:
+        raise HTTPException(status_code=400, detail="Rol no válido")
+    if user_id == user.id and payload.role != "admin":
+        raise HTTPException(status_code=400, detail="No puedes quitarte el rol de administrador")
+    with Session(engine) as session:
+        target = session.get(User, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        target.role = payload.role
+        session.commit()
+        session.refresh(target)
+        return user_dict(target)
 
 
 @app.get("/api/editors")

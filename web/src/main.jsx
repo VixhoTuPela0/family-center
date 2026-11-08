@@ -86,11 +86,13 @@ function App() {
     const [v, e] = await Promise.all([fetchJson("videos", []), fetchJson("calendar-events", [])]);
     setVideos(v);
     setCalendarEvents(e);
-    const [c, p, u, a, i, ed, st, storageData] = await Promise.all([
+    const [c, p, u, a, i, ed] = await Promise.all([
       fetchJson("categories", []), fetchJson("people", []), fetchJson("users", []), fetchJson("albums", []),
-      fetchJson("users/invitations", []), fetchJson("editors", []), user?.role === "admin" || user?.role === "editor" ? fetchJson("storage", null) : Promise.resolve(null),
+      fetchJson("users/invitations", []), fetchJson("editors", []),
     ]);
-    setCategories(c); setPeople(p); setUsers(u); setAlbums(a); setInvitations(i); setEditors(ed); setStorage(storageData);
+    setCategories(c); setPeople(p); setUsers(u); setAlbums(a); setInvitations(i); setEditors(ed);
+    if (user?.role === "admin" || user?.role === "editor") fetchJson("storage", null).then(setStorage);
+    else setStorage(null);
   };
   const formatStorage = bytes => { const tb = bytes / 1_000_000_000_000; return `${tb >= 1 ? tb.toFixed(2).replace(/\.?0+$/, "") : (bytes / 1_000_000_000).toFixed(1)} ${tb >= 1 ? "TB" : "GB"}`; };
   const storagePercent = storage ? Math.min(100, (storage.usedBytes / storage.totalBytes) * 100) : 0;

@@ -234,7 +234,8 @@ function CalendarPage({ events, videos, albums, people, categories, admin, save,
   const [data, setData] = useState({ title: "", event_type: categories[0]?.name || "Otros", event_date: `${year}-${String(month + 1).padStart(2, "0")}-01`, description: "", person: "", recurrence: "none", video_ids: [], album_ids: [] });
   const first = new Date(year, month, 1).getDay();
   const days = new Date(year, month + 1, 0).getDate();
-  const linkedItems = [...videos.map(item => ({ ...item, calendarKind: "video", date: item.date, title: item.title })), ...albums.filter(item => !item.isRegrouping && item.date).map(item => ({ ...item, calendarKind: "album", date: item.startDate || item.date, title: item.title }))];
+  const albumVideos = albums.flatMap(album => (album.videos || []).map(video => ({ ...video, calendarKind: "video", date: video.date, title: video.title })));
+  const linkedItems = [...videos.map(item => ({ ...item, calendarKind: "video", date: item.date, title: item.title })), ...albumVideos, ...albums.filter(item => !item.isRegrouping && item.date).map(item => ({ ...item, calendarKind: "album", date: item.startDate || item.date, title: item.title }))];
   const customItems = events.flatMap(event => {
     const date = localDate(event.date);
     const person = event.person.trim();

@@ -671,7 +671,7 @@ def approve_access_request(request_id: str, payload: AccessRequestReview, _: Use
             raise HTTPException(status_code=404, detail="Álbum no encontrado")
         recorded_on = payload.recorded_on
         event_type = payload.event_type.strip() or "Otros"
-        if album and not album.is_long_duration:
+        if album and not album.is_long_duration and not album.is_regrouping:
             recorded_on = album.recorded_on
             event_type = album.event_type
         target = media_target(access_request.original_filename, access_request.upload_media_type, recorded_on)
@@ -1683,7 +1683,7 @@ async def upload_video(
         album = session.get(Album, album_id) if album_id else None
         if album_id and not album:
             raise HTTPException(status_code=404, detail="Álbum no encontrado")
-        if album and not album.is_long_duration:
+        if album and not album.is_long_duration and not album.is_regrouping:
             recorded_on = album.recorded_on
             event_type = album.event_type
             start_date = end_date = None
@@ -2114,7 +2114,7 @@ def import_source_file(
         album = session.get(Album, album_id) if album_id else None
         if album_id and not album:
             raise HTTPException(status_code=404, detail="Álbum no encontrado")
-        if album and not album.is_long_duration:
+        if album and not album.is_long_duration and not album.is_regrouping:
             recorded_on = album.recorded_on
             event_type = album.event_type
             start_date = end_date = None

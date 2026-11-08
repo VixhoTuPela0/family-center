@@ -1148,7 +1148,7 @@ def health() -> dict:
 
 
 @app.get("/api/storage")
-def storage(_: User = Depends(current_user)) -> dict:
+def storage(_: User = Depends(staff_user)) -> dict:
     try:
         result = subprocess.run(
             ["du", "-sb", "--", str(MEDIA_ROOT)],
@@ -1160,18 +1160,25 @@ def storage(_: User = Depends(current_user)) -> dict:
         used_bytes = int(result.stdout.split()[0])
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError) as error:
         raise HTTPException(status_code=503, detail="No se pudo medir el almacenamiento") from error
-    return {
-        "path": str(MEDIA_ROOT),
-        "usedBytes": used_bytes,
-        "totalBytes": STORAGE_CAPACITY_BYTES,
-    }
+    return {"usedBytes": used_bytes, "totalBytes": STORAGE_CAPACITY_BYTES}
 
 
-@app.get("/api/media/{filename:path}", response_model=None)
-def media_file(filename: str, preview: int = 0, _: User = Depends(current_user)) -> FileResponse | Response:
+def authorized_media_target(filename: str, user: User, session: Session) -> Path:
     target = (MEDIA_ROOT / filename).resolve()
     if MEDIA_ROOT.resolve() not in target.parents or not target.is_file():
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    if filename.startswith("profile pictures/"):
+        return target
+    video = session.scalar(select(Video).where(Video.filename == filename))
+    if not video or not can_view(video, user):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return target
+
+
+@app.get("/api/media/{filename:path}", response_model=None)
+def media_file(filename: str, preview: int = 0, user: User = Depends(current_user)) -> FileResponse | Response:
+    with Session(engine) as session:
+        target = authorized_media_target(filename, user, session)
     if preview and target.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
         try:
             from io import BytesIO
@@ -1196,9 +1203,10 @@ def media_file(filename: str, preview: int = 0, _: User = Depends(current_user))
 
 
 @app.get("/api/pdf-info/{filename:path}")
-def pdf_info(filename: str, _: User = Depends(current_user)) -> dict:
-    target = (MEDIA_ROOT / filename).resolve()
-    if MEDIA_ROOT.resolve() not in target.parents or not target.is_file() or target.suffix.lower() != ".pdf":
+def pdf_info(filename: str, user: User = Depends(current_user)) -> dict:
+    with Session(engine) as session:
+        target = authorized_media_target(filename, user, session)
+    if target.suffix.lower() != ".pdf":
         raise HTTPException(status_code=404, detail="PDF no encontrado")
     try:
         result = subprocess.run(["pdfinfo", str(target)], check=True, capture_output=True, text=True, timeout=30)
@@ -1209,9 +1217,10 @@ def pdf_info(filename: str, _: User = Depends(current_user)) -> dict:
 
 
 @app.get("/api/pdf-page/{filename:path}", response_model=None)
-def pdf_page(filename: str, page: int = 1, _: User = Depends(current_user)) -> FileResponse:
-    target = (MEDIA_ROOT / filename).resolve()
-    if MEDIA_ROOT.resolve() not in target.parents or not target.is_file() or target.suffix.lower() != ".pdf":
+def pdf_page(filename: str, page: int = 1, user: User = Depends(current_user)) -> FileResponse:
+    with Session(engine) as session:
+        target = authorized_media_target(filename, user, session)
+    if target.suffix.lower() != ".pdf":
         raise HTTPException(status_code=404, detail="PDF no encontrado")
     if page < 1:
         raise HTTPException(status_code=400, detail="Página no válida")

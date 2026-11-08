@@ -50,6 +50,7 @@ class Video(Base):
     title: Mapped[str] = mapped_column(String(200))
     event_type: Mapped[str] = mapped_column(String(80), default="Otros")
     recorded_on: Mapped[date] = mapped_column(Date)
+    date_precision: Mapped[str] = mapped_column(String(10), default="day")
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
     end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
     people: Mapped[str] = mapped_column(Text, default="")
@@ -82,7 +83,8 @@ class Album(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     title: Mapped[str] = mapped_column(String(200))
     event_type: Mapped[str] = mapped_column(String(80), default="Otros")
-    recorded_on: Mapped[date] = mapped_column(Date)
+    recorded_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
+    is_regrouping: Mapped[bool] = mapped_column(Boolean, default=False)
     is_long_duration: Mapped[bool] = mapped_column(Boolean, default=False)
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
     end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, default=None)
@@ -191,6 +193,7 @@ class VideoCreate(BaseModel):
     title: str
     event_type: str = "Otros"
     recorded_on: date
+    date_precision: str = "day"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     people: list[str] = []
@@ -277,6 +280,7 @@ class AlbumCreate(BaseModel):
     title: str
     recorded_on: Optional[date] = None
     is_long_duration: bool = False
+    is_regrouping: bool = False
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     event_type: str = "Otros"
@@ -951,7 +955,7 @@ def startup() -> None:
             if column not in columns:
                 session.execute(text(f"ALTER TABLE users ADD COLUMN {column} VARCHAR(160) NOT NULL DEFAULT ''"))
         video_columns = {column["name"] for column in inspect(engine).get_columns("videos")}
-        for column, definition in (("visibility", "VARCHAR(20) NOT NULL DEFAULT 'public'"), ("allowed_users", "TEXT NOT NULL DEFAULT ''"), ("share_token", "VARCHAR(128) NOT NULL DEFAULT ''"), ("media_type", "VARCHAR(20) NOT NULL DEFAULT 'video'"), ("album_id", "VARCHAR(36)"), ("created_by", "VARCHAR(36)"), ("slide_group_id", "VARCHAR(36)"), ("content_hash", "VARCHAR(64)"), ("start_date", "DATE"), ("end_date", "DATE")):
+        for column, definition in (("visibility", "VARCHAR(20) NOT NULL DEFAULT 'public'"), ("allowed_users", "TEXT NOT NULL DEFAULT ''"), ("share_token", "VARCHAR(128) NOT NULL DEFAULT ''"), ("media_type", "VARCHAR(20) NOT NULL DEFAULT 'video'"), ("album_id", "VARCHAR(36)"), ("created_by", "VARCHAR(36)"), ("slide_group_id", "VARCHAR(36)"), ("content_hash", "VARCHAR(64)"), ("start_date", "DATE"), ("end_date", "DATE"), ("date_precision", "VARCHAR(10) NOT NULL DEFAULT 'day'")):
             if column not in video_columns:
                 session.execute(text(f"ALTER TABLE videos ADD COLUMN {column} {definition}"))
         album_columns = {column["name"] for column in inspect(engine).get_columns("albums")}
@@ -962,6 +966,10 @@ def startup() -> None:
                 session.execute(text(f"ALTER TABLE albums ADD COLUMN {column} DATE"))
         if "is_long_duration" not in album_columns:
             session.execute(text("ALTER TABLE albums ADD COLUMN is_long_duration BOOLEAN NOT NULL DEFAULT FALSE"))
+        if "is_regrouping" not in album_columns:
+            session.execute(text("ALTER TABLE albums ADD COLUMN is_regrouping BOOLEAN NOT NULL DEFAULT FALSE"))
+        if engine.dialect.name == "postgresql":
+            session.execute(text("ALTER TABLE albums ALTER COLUMN recorded_on DROP NOT NULL"))
         calendar_columns = {column["name"] for column in inspect(engine).get_columns("calendar_events")}
         if "occurrence_data" not in calendar_columns:
             session.execute(text("ALTER TABLE calendar_events ADD COLUMN occurrence_data TEXT NOT NULL DEFAULT '{}'"))
@@ -1026,6 +1034,7 @@ def video_dict(video: Video) -> dict:
     return {
         "id": video.id, "title": video.title, "eventType": video.event_type,
         "date": video.recorded_on.isoformat(),
+        "datePrecision": video.date_precision or "day",
         "startDate": video.start_date.isoformat() if video.start_date else None,
         "endDate": video.end_date.isoformat() if video.end_date else None,
         "people": [p.strip() for p in video.people.split(",") if p.strip()],
@@ -1252,15 +1261,17 @@ def list_albums(user: User = Depends(current_user)) -> list[dict]:
                 "id": album.id,
                 "title": album.title,
                 "eventType": album.event_type,
-                "date": album.recorded_on.isoformat(),
+                "date": album.recorded_on.isoformat() if album.recorded_on else None,
+                "datePrecision": "day",
                 "isLongDuration": album.is_long_duration,
+                "isRegrouping": album.is_regrouping,
                 "startDate": album.start_date.isoformat() if album.is_long_duration and album.start_date else None,
                 "endDate": album.end_date.isoformat() if album.is_long_duration and album.end_date else None,
                 "people": [item.strip() for item in album.people.split(",") if item.strip()],
                 "description": album.description,
                 "videos": [item for item in visible.values() if item["albumId"] == album.id or item["slideGroupId"] in album_group_ids.get(album.id, set())],
             }
-            for album in session.scalars(select(Album).order_by(Album.recorded_on.desc()))
+            for album in session.scalars(select(Album).order_by(Album.recorded_on.desc().nullslast()))
         ]
 
 
@@ -1269,17 +1280,17 @@ def create_album(payload: AlbumCreate, _: User = Depends(content_manager)) -> di
     with Session(engine) as session:
         start_date = payload.start_date if payload.is_long_duration else payload.recorded_on
         end_date = payload.end_date if payload.is_long_duration else None
-        if not start_date:
+        if not start_date and not payload.is_regrouping:
             raise HTTPException(status_code=400, detail="El álbum necesita una fecha")
         if payload.is_long_duration:
             validate_date_range(start_date, end_date)
-        album = Album(title=payload.title.strip(), event_type=payload.event_type.strip() or "Otros", recorded_on=start_date, is_long_duration=payload.is_long_duration, start_date=start_date if payload.is_long_duration else None, end_date=end_date, people=", ".join(payload.people), description=payload.description)
+        album = Album(title=payload.title.strip(), event_type=payload.event_type.strip() or "Otros", recorded_on=start_date, is_long_duration=payload.is_long_duration, is_regrouping=payload.is_regrouping, start_date=start_date if payload.is_long_duration else None, end_date=end_date, people=", ".join(payload.people), description=payload.description)
         if not album.title:
             raise HTTPException(status_code=400, detail="El álbum necesita un nombre")
         session.add(album)
         session.commit()
         session.refresh(album)
-        return {"id": album.id, "title": album.title, "eventType": album.event_type, "date": album.recorded_on.isoformat(), "isLongDuration": album.is_long_duration, "startDate": album.start_date.isoformat() if album.start_date else None, "endDate": album.end_date.isoformat() if album.end_date else None, "people": payload.people, "description": album.description, "videos": []}
+        return {"id": album.id, "title": album.title, "eventType": album.event_type, "date": album.recorded_on.isoformat() if album.recorded_on else None, "isLongDuration": album.is_long_duration, "isRegrouping": album.is_regrouping, "startDate": album.start_date.isoformat() if album.start_date else None, "endDate": album.end_date.isoformat() if album.end_date else None, "people": payload.people, "description": album.description, "videos": []}
 
 
 @app.put("/api/albums/{album_id}")
@@ -1293,7 +1304,7 @@ def update_album(album_id: str, payload: AlbumCreate, _: User = Depends(admin_us
             raise HTTPException(status_code=400, detail="El álbum necesita un nombre")
         start_date = payload.start_date if payload.is_long_duration else payload.recorded_on
         end_date = payload.end_date if payload.is_long_duration else None
-        if not start_date:
+        if not start_date and not payload.is_regrouping:
             raise HTTPException(status_code=400, detail="El álbum necesita una fecha")
         if payload.is_long_duration:
             validate_date_range(start_date, end_date)
@@ -1301,13 +1312,14 @@ def update_album(album_id: str, payload: AlbumCreate, _: User = Depends(admin_us
         album.event_type = payload.event_type.strip() or "Otros"
         album.recorded_on = start_date
         album.is_long_duration = payload.is_long_duration
+        album.is_regrouping = payload.is_regrouping
         album.start_date = start_date if payload.is_long_duration else None
         album.end_date = end_date
         album.people = ", ".join(payload.people)
         album.description = payload.description
         session.commit()
         session.refresh(album)
-        return {"id": album.id, "title": album.title, "eventType": album.event_type, "date": album.recorded_on.isoformat(), "isLongDuration": album.is_long_duration, "startDate": album.start_date.isoformat() if album.start_date else None, "endDate": album.end_date.isoformat() if album.end_date else None, "people": payload.people, "description": album.description}
+        return {"id": album.id, "title": album.title, "eventType": album.event_type, "date": album.recorded_on.isoformat() if album.recorded_on else None, "isLongDuration": album.is_long_duration, "isRegrouping": album.is_regrouping, "startDate": album.start_date.isoformat() if album.start_date else None, "endDate": album.end_date.isoformat() if album.end_date else None, "people": payload.people, "description": album.description}
 
 
 @app.delete("/api/albums/{album_id}")
@@ -1431,10 +1443,12 @@ def create_video(payload: VideoCreate, _: User = Depends(admin_user)) -> dict:
         album = session.get(Album, payload.album_id) if payload.album_id else None
         if payload.album_id and not album:
             raise HTTPException(status_code=404, detail="Álbum no encontrado")
-        recorded_on = album.recorded_on if album and not album.is_long_duration else payload.recorded_on
-        event_type = album.event_type if album and not album.is_long_duration else payload.event_type
-        start_date, end_date = (None, None) if album and not album.is_long_duration else (payload.start_date, payload.end_date)
+        inherit_album = album and not album.is_long_duration and not album.is_regrouping
+        recorded_on = album.recorded_on if inherit_album else payload.recorded_on
+        event_type = album.event_type if inherit_album else payload.event_type
+        start_date, end_date = (None, None) if inherit_album else (payload.start_date, payload.end_date)
         video = Video(title=payload.title, event_type=event_type, recorded_on=recorded_on,
+                      date_precision=payload.date_precision,
                       start_date=start_date, end_date=end_date,
                       people=", ".join(payload.people), description=payload.description,
                       visibility=payload.visibility, allowed_users=",".join(payload.allowed_users), media_type=payload.media_type, album_id=payload.album_id)
@@ -1470,7 +1484,7 @@ def update_video(video_id: str, payload: VideoUpdate, user: User = Depends(edito
             return {"pendingApproval": True, "message": "La modificación quedó pendiente de aprobación de un administrador"}
         if not can_directly_modify_video(video, user):
             raise HTTPException(status_code=403, detail="Los cambios de archivo requieren aprobación y por ahora solo puedes proponer cambios de datos")
-        video.title, video.event_type, video.recorded_on = payload.title, payload.event_type, payload.recorded_on
+        video.title, video.event_type, video.recorded_on, video.date_precision = payload.title, payload.event_type, payload.recorded_on, payload.date_precision
         video.start_date, video.end_date = payload.start_date, payload.end_date
         video.people, video.description = ", ".join(payload.people), payload.description
         video.visibility = payload.visibility
@@ -1480,7 +1494,7 @@ def update_video(video_id: str, payload: VideoUpdate, user: User = Depends(edito
             album = session.get(Album, video.album_id)
             if not album:
                 raise HTTPException(status_code=404, detail="Álbum no encontrado")
-            if not album.is_long_duration:
+            if not album.is_long_duration and not album.is_regrouping:
                 video.recorded_on = album.recorded_on
                 video.event_type = album.event_type
                 video.start_date = video.end_date = None
@@ -1622,7 +1636,7 @@ def shared_video(token: str) -> dict:
 
 @app.post("/api/videos/upload")
 async def upload_video(
-    title: str = Form(...), event_type: str = Form("Otros"), recorded_on: date = Form(...),
+    title: str = Form(...), event_type: str = Form("Otros"), recorded_on: date = Form(...), date_precision: str = Form("day"),
     start_date: Optional[date] = Form(None), end_date: Optional[date] = Form(None),
     people: str = Form(""), description: str = Form(""), file: UploadFile = File(None),
     visibility: str = Form("public"), allowed_users: str = Form(""), media_type: str = Form("video"),
@@ -1643,7 +1657,7 @@ async def upload_video(
             album = session.get(Album, album_id) if album_id else None
             if album_id and not album:
                 raise HTTPException(status_code=404, detail="Álbum no encontrado")
-            if album and not album.is_long_duration:
+            if album and not album.is_long_duration and not album.is_regrouping:
                 recorded_on = album.recorded_on
                 event_type = album.event_type
                 start_date = end_date = None
@@ -1659,7 +1673,7 @@ async def upload_video(
             slide_group_id = str(uuid.uuid4())
             for position, item in enumerate(files, start=1):
                 safe_name = store_uploaded_file(item.file, item.filename or f"slide_{position}.jpg", "image", recorded_on)
-                session.add(Video(title=title, event_type=event_type, recorded_on=recorded_on, start_date=start_date, end_date=end_date, people=people, description=description, filename=safe_name, visibility=visibility if visibility in {"public", "restricted"} else "public", allowed_users=allowed_user_ids(session, allowed_users), media_type="image", album_id=album.id if album else None, created_by=user.id, slide_group_id=slide_group_id, content_hash=hashes[position - 1]))
+                session.add(Video(title=title, event_type=event_type, recorded_on=recorded_on, date_precision=date_precision, start_date=start_date, end_date=end_date, people=people, description=description, filename=safe_name, visibility=visibility if visibility in {"public", "restricted"} else "public", allowed_users=allowed_user_ids(session, allowed_users), media_type="image", album_id=album.id if album else None, created_by=user.id, slide_group_id=slide_group_id, content_hash=hashes[position - 1]))
             session.commit()
             return {"title": title, "slides": len(files)}
     file = files[0]
@@ -1678,7 +1692,7 @@ async def upload_video(
         if duplicate:
             raise HTTPException(status_code=409, detail=f"El archivo ya está subido como '{duplicate.title}'")
         safe_name = store_uploaded_file(file.file, file.filename or "media", media_type, recorded_on)
-        video = Video(title=title, event_type=event_type, recorded_on=recorded_on, start_date=start_date, end_date=end_date, people=people, description=description, filename=safe_name, visibility=visibility if visibility in {"public", "restricted"} else "public", allowed_users=allowed_user_ids(session, allowed_users), media_type=media_type, album_id=album_id or None, created_by=user.id, content_hash=digest)
+        video = Video(title=title, event_type=event_type, recorded_on=recorded_on, date_precision=date_precision, start_date=start_date, end_date=end_date, people=people, description=description, filename=safe_name, visibility=visibility if visibility in {"public", "restricted"} else "public", allowed_users=allowed_user_ids(session, allowed_users), media_type=media_type, album_id=album_id or None, created_by=user.id, content_hash=digest)
         session.add(video)
         session.commit()
         session.refresh(video)

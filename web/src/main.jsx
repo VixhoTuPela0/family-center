@@ -585,8 +585,9 @@ VideoForm = ServerVideoForm;
 class AppErrorBoundary extends React.Component {
   state = { error: null };
   static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("Error al cambiar de sección", error, info); }
   render() {
-    if (this.state.error) return <div className="content"><section className="form-card"><h2>No se pudo cargar esta sección</h2><p className="error-message">Ocurrió un error inesperado al cambiar de página.</p><button className="primary" onClick={() => window.location.reload()}>Recargar</button></section></div>;
+    if (this.state.error) return <div className="content"><section className="form-card"><h2>No se pudo cargar esta sección</h2><p className="error-message">Ocurrió un error inesperado al cambiar de página.</p><pre className="error-details">{this.state.error.message}</pre><button className="primary" onClick={() => window.location.reload()}>Recargar</button></section></div>;
     return this.props.children;
   }
 }

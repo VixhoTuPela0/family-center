@@ -1068,6 +1068,14 @@ def video_dict(video: Video) -> dict:
     }
 
 
+def add_creator_names(items: list[dict], names: dict[str, str]) -> list[dict]:
+    for item in items:
+        item["createdByName"] = names.get(item.get("createdBy"), "Persona desconocida")
+        if item.get("slides"):
+            add_creator_names(item["slides"], names)
+    return items
+
+
 def grouped_video_dicts(videos: list[Video]) -> list[dict]:
     grouped: dict[str, dict] = {}
     result: list[dict] = []
@@ -1238,6 +1246,7 @@ def pdf_page(filename: str, page: int = 1, user: User = Depends(current_user)) -
 @app.get("/api/videos")
 def list_videos(search: Optional[str] = None, event_type: Optional[str] = None, media_type: Optional[str] = None, sort: str = "date_desc", _: User = Depends(current_user)) -> list[dict]:
     with Session(engine) as session:
+        creator_names = {user.id: user.display_name for user in session.scalars(select(User))}
         user = session.get(User, _.id)
         album_titles = {
             album.title.strip().casefold()
@@ -1264,12 +1273,13 @@ def list_videos(search: Optional[str] = None, event_type: Optional[str] = None, 
         videos.sort(key=lambda video: video.recorded_on)
     elif sort == "title_asc":
         videos.sort(key=lambda video: video.title.lower())
-    return grouped_video_dicts(videos)
+    return add_creator_names(grouped_video_dicts(videos), creator_names)
 
 
 @app.get("/api/albums")
 def list_albums(user: User = Depends(current_user)) -> list[dict]:
     with Session(engine) as session:
+        creator_names = {item.id: item.display_name for item in session.scalars(select(User))}
         visible = {video.id: video_dict(video) for video in session.scalars(select(Video).order_by(Video.created_at.asc())) if can_view(video, user)}
         album_group_ids = {
             album.id: {
@@ -1278,7 +1288,7 @@ def list_albums(user: User = Depends(current_user)) -> list[dict]:
             }
             for album in session.scalars(select(Album))
         }
-        return [
+        albums = [
             {
                 "id": album.id,
                 "title": album.title,
@@ -1295,6 +1305,9 @@ def list_albums(user: User = Depends(current_user)) -> list[dict]:
             }
             for album in session.scalars(select(Album).order_by(Album.recorded_on.desc().nullslast()))
         ]
+        for album in albums:
+            add_creator_names(album["videos"], creator_names)
+        return albums
 
 
 @app.post("/api/albums")
@@ -1461,6 +1474,8 @@ def delete_calendar_event(event_id: str, _: User = Depends(admin_user)) -> dict:
 @app.post("/api/videos")
 def create_video(payload: VideoCreate, _: User = Depends(admin_user)) -> dict:
     with Session(engine) as session:
+        if payload.media_type != "image":
+            payload.start_date = payload.end_date = None
         validate_date_range(payload.start_date, payload.end_date)
         album = session.get(Album, payload.album_id) if payload.album_id else None
         if payload.album_id and not album:
@@ -1473,11 +1488,13 @@ def create_video(payload: VideoCreate, _: User = Depends(admin_user)) -> dict:
                       date_precision=payload.date_precision,
                       start_date=start_date, end_date=end_date,
                       people=", ".join(payload.people), description=payload.description,
-                      visibility=payload.visibility, allowed_users=",".join(payload.allowed_users), media_type=payload.media_type, album_id=payload.album_id)
+                      visibility=payload.visibility, allowed_users=",".join(payload.allowed_users), media_type=payload.media_type, album_id=payload.album_id, created_by=_.id)
         session.add(video)
         session.commit()
         session.refresh(video)
-        return video_dict(video)
+        result = video_dict(video)
+        result["createdByName"] = _.display_name
+        return result
 
 
 @app.put("/api/videos/{video_id}")
@@ -1488,6 +1505,11 @@ def update_video(video_id: str, payload: VideoUpdate, user: User = Depends(edito
             raise HTTPException(status_code=404, detail="Recuerdo no encontrado")
         if not can_manage_video(video, user):
             raise HTTPException(status_code=403, detail="Solo puedes modificar tus propios recuerdos")
+        if payload.media_type != "image":
+            payload.start_date = payload.end_date = None
+            payload.date_precision = "day"
+        elif payload.start_date and payload.end_date:
+            payload.date_precision = "day"
         validate_date_range(payload.start_date, payload.end_date)
         if user.role == "editor" and video.created_by != user.id:
             pending = session.scalar(select(EditorChange).where(
@@ -1522,7 +1544,9 @@ def update_video(video_id: str, payload: VideoUpdate, user: User = Depends(edito
                 video.start_date = video.end_date = None
         session.commit()
         session.refresh(video)
-        return video_dict(video)
+        result = video_dict(video)
+        result["createdByName"] = next((item.display_name for item in session.scalars(select(User)) if item.id == video.created_by), "Persona desconocida")
+        return result
 
 
 @app.post("/api/videos/{video_id}/replace")
@@ -1701,6 +1725,11 @@ async def upload_video(
     file = files[0]
     detected_type = detected_media_type(file.filename or "media", file.content_type or "")
     media_type = media_type if media_type in {"video", "audio", "image", "document", "letter"} else detected_type
+    if media_type != "image":
+        start_date = end_date = None
+        date_precision = "day"
+    elif start_date and end_date:
+        date_precision = "day"
     with Session(engine) as session:
         album = session.get(Album, album_id) if album_id else None
         if album_id and not album:
